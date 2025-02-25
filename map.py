@@ -32,4 +32,4 @@ for idx, row in echantillon.iterrows():
             popup=popup_text
         ).add_to(carte)
 
-carte.save('map.html')
+carte.save('index.html')
