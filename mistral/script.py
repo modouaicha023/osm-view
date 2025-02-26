@@ -6,6 +6,7 @@ from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 from math import radians, cos, sin, asin, sqrt
 import random
+from folium import plugins
 
 # Configuration
 CHATEAU_COORDS = (48.45038746219548, -2.0447748346342434)  # Coordonnées du Château de Dinan
@@ -268,7 +269,7 @@ def solve_vrp(data):
 
 def display_routes(manager, routing, solution, points, map_viz):
     """
-    Affiche les itinéraires calculés sur la carte
+    Affiche les itinéraires calculés sur la carte avec indication de direction
     """
     if not solution:
         print("Pas de solution trouvée !")
@@ -295,6 +296,10 @@ def display_routes(manager, routing, solution, points, map_viz):
         route_str = f"Route du chauffeur {vehicle_id}:\n"
         route_str += f"  Château de Dinan"
         
+        # Pour stocker l'ordre des arrêts
+        stop_sequence = []
+        stop_sequence.append({"coords": [CHATEAU_COORDS[0], CHATEAU_COORDS[1]], "name": "Château de Dinan", "stop_num": 0})
+        
         while not routing.IsEnd(index):
             node_index = manager.IndexToNode(index)
             if node_index != 0:  # Si ce n'est pas le dépôt
@@ -304,6 +309,13 @@ def display_routes(manager, routing, solution, points, map_viz):
                 
                 # Ajouter le point à l'itinéraire
                 route_points.append([point['lat'], point['lon']])
+                
+                # Ajouter à la séquence d'arrêts
+                stop_sequence.append({
+                    "coords": [point['lat'], point['lon']], 
+                    "name": point['name'], 
+                    "stop_num": len(stop_sequence)
+                })
                 
                 routes_df.append({
                     'driver_id': vehicle_id,
@@ -324,6 +336,8 @@ def display_routes(manager, routing, solution, points, map_viz):
         
         # Ajouter le retour au château
         route_points.append([CHATEAU_COORDS[0], CHATEAU_COORDS[1]])
+        stop_sequence.append({"coords": [CHATEAU_COORDS[0], CHATEAU_COORDS[1]], "name": "Château de Dinan (retour)", "stop_num": len(stop_sequence)})
+        
         route_str += f" -> Château de Dinan"
         route_str += f"\n  Distance: {route_distance:.2f} km"
         route_str += f"\n  Charge: {route_load}/{CAPACITY_PER_DRIVER} passagers"
@@ -350,6 +364,50 @@ def display_routes(manager, routing, solution, points, map_viz):
                 popup=f"Chauffeur {vehicle_id}: {route_distance:.2f} km, {route_load} passagers"
             ).add_to(map_viz)
             
+            # Ajouter des flèches directionnelles
+            for i in range(len(route_points) - 1):
+                # Calculer le point au milieu du segment pour placer la flèche
+                mid_point = [(route_points[i][0] + route_points[i+1][0]) / 2, 
+                             (route_points[i][1] + route_points[i+1][1]) / 2]
+                
+                # Ajouter un marqueur d'arrêt numéroté
+                folium.Marker(
+                    location=route_points[i],
+                    icon=folium.DivIcon(
+                        icon_size=(30, 30),
+                        icon_anchor=(15, 15),
+                        html=f'<div style="background-color:{colors[vehicle_id % len(colors)]};color:white;width:25px;'
+                             f'height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
+                             f'font-weight:bold;font-size:12px;">{i}</div>',
+                        class_name=f"stop-marker-{vehicle_id}-{i}"
+                    ),
+                    popup=f"Arrêt {i}: {stop_sequence[i]['name']}"
+                ).add_to(map_viz)
+                
+                # Ajouter une flèche au milieu du segment
+                plugins.AntPath(
+                    locations=[route_points[i], route_points[i+1]],
+                    dash_array=[10, 20],
+                    delay=1000,
+                    color=colors[vehicle_id % len(colors)],
+                    pulse_color='#FFFFFF',
+                    weight=4
+                ).add_to(map_viz)
+            
+            # Ajouter le dernier point (retour au château)
+            folium.Marker(
+                location=route_points[-1],
+                icon=folium.DivIcon(
+                    icon_size=(30, 30),
+                    icon_anchor=(15, 15),
+                    html=f'<div style="background-color:{colors[vehicle_id % len(colors)]};color:white;width:25px;'
+                         f'height:25px;border-radius:50%;display:flex;align-items:center;justify-content:center;'
+                         f'font-weight:bold;font-size:12px;">{len(route_points)-1}</div>',
+                    class_name=f"stop-marker-{vehicle_id}-end"
+                ),
+                popup=f"Retour au château (chauffeur {vehicle_id})"
+            ).add_to(map_viz)
+            
             # Ajouter un marqueur spécial pour le chauffeur
             folium.Marker(
                 location=[CHATEAU_COORDS[0], CHATEAU_COORDS[1]],
@@ -359,7 +417,6 @@ def display_routes(manager, routing, solution, points, map_viz):
     
     print(f"Distance totale: {total_distance:.2f} km")
     return pd.DataFrame(routes_df) if routes_df else None
-
 # Charger les données OSM
 print("Chargement des données OSM...")
 geojson_file = 'dinan_osm_data.geojson'
