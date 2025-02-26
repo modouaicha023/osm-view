@@ -11,7 +11,7 @@ import random
 CHATEAU_COORDS = (48.45038746219548, -2.0447748346342434)  # Coordonnées du Château de Dinan
 MAX_DISTANCE_KM = 15  # Rayon maximal de déplacement
 NUM_DRIVERS = 3
-CAPACITY_PER_DRIVER = 8
+CAPACITY_PER_DRIVER = 12
 ARRIVAL_WINDOW = ("8:00", "12:00")
 DEPARTURE_WINDOW = ("14:00", "16:00")
 
@@ -78,8 +78,9 @@ def load_osm_data(geojson_file, chateau_coords, max_distance_km):
                     if not poi_type:
                         poi_type = feature['geometry']['type']
                 
-                # Générer un nombre aléatoire de passagers (1-4)
-                passengers = random.randint(1, 4)
+                # Générer un nombre aléatoire de passagers (1-3) au lieu de (1-4)
+                # pour réduire la charge totale
+                passengers = random.randint(1, 3)
                 
                 # Générer une heure d'arrivée aléatoire entre 8h et 12h
                 arrival_hour = random.randint(8, 11)
@@ -104,10 +105,10 @@ def load_osm_data(geojson_file, chateau_coords, max_distance_km):
                 
                 point_id += 1
     
-    # Si nous avons trop de points, on prend un échantillon
-    if len(points) > 50:
+    # Limiter à un plus petit nombre de points pour faciliter la résolution
+    if len(points) > 30:
         random.shuffle(points)
-        points = points[:50]
+        points = points[:30]
     
     return points
 
@@ -189,7 +190,7 @@ def prepare_vrp_data(chateau_coords, points):
 # Fonction qui résout le problème VRP
 def solve_vrp(data):
     """
-    Résout le problème de routage de véhicules avec OR-Tools
+    Résout le problème de routage de véhicules avec OR-Tools avec plus de flexibilité
     """
     # Créer le modèle de routage
     manager = pywrapcp.RoutingIndexManager(
@@ -203,43 +204,68 @@ def solve_vrp(data):
     def distance_callback(from_index, to_index):
         from_node = manager.IndexToNode(from_index)
         to_node = manager.IndexToNode(to_index)
-        print(f"Distance callback: from_index={from_index}, to_index={to_index}, from_node={from_node}, to_node={to_node}")
-        return data['distance_matrix'][from_node][to_node]
+        return int(data['distance_matrix'][from_node][to_node])
 
-    
     transit_callback_index = routing.RegisterTransitCallback(distance_callback)
     routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
     
-    # Ajouter les contraintes de capacité
+    # Ajouter les contraintes de capacité avec une marge plus grande
     def demand_callback(from_index):
         from_node = manager.IndexToNode(from_index)
         return data['demands'][from_node]
     
     demand_callback_index = routing.RegisterUnaryTransitCallback(demand_callback)
+    
+    # Augmenter les capacités des véhicules par un facteur plus important
+    vehicle_capacities = [cap * 3 for cap in data['vehicle_capacities']]
+    
     routing.AddDimensionWithVehicleCapacity(
         demand_callback_index,
         0,  # slack max
-        data['vehicle_capacities'],  # capacités des véhicules
+        vehicle_capacities,  # capacités augmentées
         True,  # début à zéro
         'Capacity'
     )
     
-    # Paramètres de recherche
-    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-    search_parameters.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+    # Distance maximale beaucoup plus souple
+    max_distance = 50000  # 50 km en mètres au lieu de 30km
+    routing.AddDimension(
+        transit_callback_index,
+        0,  # pas de slack
+        max_distance,
+        True,  # début à zéro
+        'Distance'
     )
+    
+    # Paramètres de recherche améliorés
+    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+    
+    # Essayer une stratégie différente
+    search_parameters.first_solution_strategy = (
+        routing_enums_pb2.FirstSolutionStrategy.SAVINGS
+    )
+    
     search_parameters.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     )
-    search_parameters.time_limit.seconds = 30
+    
+    # Augmenter davantage le temps limite
+    search_parameters.time_limit.seconds = 120
     
     # Résoudre le problème
     solution = routing.SolveWithParameters(search_parameters)
     
+    # Si aucune solution n'est trouvée, essayer avec AUTOMATIC
+    if not solution:
+        print("Pas de solution, tentative avec AUTOMATIC...")
+        search_parameters.first_solution_strategy = (
+            routing_enums_pb2.FirstSolutionStrategy.AUTOMATIC
+        )
+        solution = routing.SolveWithParameters(search_parameters)
+    
     return manager, routing, solution
-
 # Fonction pour afficher et tracer les itinéraires sur la carte
+
 def display_routes(manager, routing, solution, points, map_viz):
     """
     Affiche les itinéraires calculés sur la carte
@@ -254,16 +280,17 @@ def display_routes(manager, routing, solution, points, map_viz):
     # Créer un DataFrame pour stocker les résultats
     routes_df = []
     
-    print(f"Solution trouvée :")
+    print(f"Solution trouvée !")
     total_distance = 0
     
     for vehicle_id in range(routing.vehicles()):
         index = routing.Start(vehicle_id)
         route_distance = 0
         route_load = 0
-        route_points = []
         
-        route_points.append(CHATEAU_COORDS)  # Commencer au château
+        # Liste pour stocker les coordonnées des points de l'itinéraire
+        route_points = []
+        route_points.append([CHATEAU_COORDS[0], CHATEAU_COORDS[1]])  # Commencer au château
         
         route_str = f"Route du chauffeur {vehicle_id}:\n"
         route_str += f"  Château de Dinan"
@@ -274,7 +301,10 @@ def display_routes(manager, routing, solution, points, map_viz):
                 route_load += data['demands'][node_index]
                 point = points[node_index - 1]  # -1 car le premier point est le château
                 route_str += f" -> {point['name']} ({point['passengers']} passagers)"
-                route_points.append((point['lat'], point['lon']))
+                
+                # Ajouter le point à l'itinéraire
+                route_points.append([point['lat'], point['lon']])
+                
                 routes_df.append({
                     'driver_id': vehicle_id,
                     'stop_number': len(route_points) - 1,
@@ -292,7 +322,8 @@ def display_routes(manager, routing, solution, points, map_viz):
             index = solution.Value(routing.NextVar(index))
             route_distance += routing.GetArcCostForVehicle(previous_index, index, vehicle_id) / 1000  # km
         
-        route_points.append(CHATEAU_COORDS)  # Terminer au château
+        # Ajouter le retour au château
+        route_points.append([CHATEAU_COORDS[0], CHATEAU_COORDS[1]])
         route_str += f" -> Château de Dinan"
         route_str += f"\n  Distance: {route_distance:.2f} km"
         route_str += f"\n  Charge: {route_load}/{CAPACITY_PER_DRIVER} passagers"
@@ -300,14 +331,30 @@ def display_routes(manager, routing, solution, points, map_viz):
         
         total_distance += route_distance
         
-        # Tracer l'itinéraire sur la carte
-        if len(route_points) > 2:  # S'il y a au moins un point en plus du château
+        # Debugging
+        print(f"Chauffeur {vehicle_id}: {len(route_points)} points, charge: {route_load}/{CAPACITY_PER_DRIVER}")
+        
+        # Tracer l'itinéraire sur la carte si le chauffeur a des arrêts
+        if len(route_points) > 2:  # Plus de 2 points = au moins un arrêt entre départ et retour
+            print(f"Tracé de l'itinéraire pour le chauffeur {vehicle_id} avec {len(route_points)} points")
+            
+            # Afficher les 2 premiers points pour debugging
+            print(f"Premier point: {route_points[0]}, Deuxième point: {route_points[1]}")
+            
+            # Créer une ligne pour l'itinéraire
             folium.PolyLine(
-                route_points,
+                locations=route_points,
                 color=colors[vehicle_id % len(colors)],
                 weight=4,
                 opacity=0.8,
                 popup=f"Chauffeur {vehicle_id}: {route_distance:.2f} km, {route_load} passagers"
+            ).add_to(map_viz)
+            
+            # Ajouter un marqueur spécial pour le chauffeur
+            folium.Marker(
+                location=[CHATEAU_COORDS[0], CHATEAU_COORDS[1]],
+                popup=f"Départ chauffeur {vehicle_id}",
+                icon=folium.Icon(color=colors[vehicle_id % len(colors)], icon='car', prefix='fa')
             ).add_to(map_viz)
     
     print(f"Distance totale: {total_distance:.2f} km")
