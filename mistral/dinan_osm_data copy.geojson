@@ -93,6 +93,31 @@
         ]
       },
       "id": "way/168876691"
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "@id": "node/12109716488",
+        "direction": "backward",
+        "highway": "give_way"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-2.0620866, 48.5535305]
+      },
+      "id": "node/12109716488"
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "@id": "node/12109716494",
+        "highway": "give_way"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-2.0627437, 48.5583499]
+      },
+      "id": "node/12109716494"
     }
   ]
 }

@@ -3,42 +3,60 @@ import json
 import folium
 
 # Charger les données GeoJSON
-with open('./mistral/dinan_osm_data.geojson', 'r') as f:
+with open('dinan_osm_data.geojson', 'r') as f:
     data = json.load(f)
 
-# Convertir en DataFrame
-df = pd.json_normalize(data['features'])
+# Créer une liste pour stocker les données extraites
+extracted_data = []
 
-# Filtrer les données pour ne garder que les routes et points d'intérêt pertinents
-df_filtered = df[df['properties.highway'].notnull()]  # Garder seulement les routes
+# Parcourir les features et extraire les informations pertinentes
+for feature in data['features']:
+    if 'highway' in feature['properties']:
+        item = {
+            'id': feature['id'],
+            'highway': feature['properties']['highway'],
+            'geometry_type': feature['geometry']['type']
+        }
+        
+        # Extraire les coordonnées selon le type de géométrie
+        if feature['geometry']['type'] == 'Point':
+            item['lon'] = feature['geometry']['coordinates'][0]
+            item['lat'] = feature['geometry']['coordinates'][1]
+        elif feature['geometry']['type'] == 'Polygon':
+            # Prendre le premier point du polygone
+            item['lon'] = feature['geometry']['coordinates'][0][0][0]
+            item['lat'] = feature['geometry']['coordinates'][0][0][1]
+        elif feature['geometry']['type'] == 'MultiPolygon':
+            # Prendre le premier point du premier polygone
+            item['lon'] = feature['geometry']['coordinates'][0][0][0][0]
+            item['lat'] = feature['geometry']['coordinates'][0][0][0][1]
+        
+        # Ajouter d'autres propriétés si nécessaires
+        for key, value in feature['properties'].items():
+            if key != 'highway':
+                item[f'prop_{key}'] = value
+                
+        extracted_data.append(item)
 
-# Fonction pour extraire les coordonnées en fonction du type de géométrie
-def extract_coordinates(geometry):
-    if geometry['type'] == 'Point':
-        return geometry['coordinates']
-    elif geometry['type'] == 'Polygon':
-        return geometry['coordinates'][0][0]  # Prendre le premier point du polygone
-    elif geometry['type'] == 'MultiPolygon':
-        return geometry['coordinates'][0][0][0]  # Prendre le premier point du premier polygone
-    else:
-        return None
-
-# Extraire les coordonnées
-df_filtered['lon'] = df_filtered['geometry'].apply(lambda x: extract_coordinates(x)[0] if extract_coordinates(x) else None)
-df_filtered['lat'] = df_filtered['geometry'].apply(lambda x: extract_coordinates(x)[1] if extract_coordinates(x) else None)
+# Créer le DataFrame à partir des données extraites
+df_filtered = pd.DataFrame(extracted_data)
 
 # Supprimer les lignes avec des coordonnées manquantes
 df_filtered.dropna(subset=['lat', 'lon'], inplace=True)
 
 # Afficher les premières lignes pour vérifier
-print(df_filtered[['properties.highway', 'lat', 'lon']].head())
+print(df_filtered[['highway', 'lat', 'lon']].head())
 
 # Visualisation des points d'intérêt sur une carte Folium
-map_viz = folium.Map(location=[48.4541, -2.0474], zoom_start=13)
+map_center = [48.4541, -2.0474]  # Coordonnées centrales de Dinan
+map_viz = folium.Map(location=map_center, zoom_start=13)
 
 # Ajouter les points d'intérêt à la carte
 for idx, row in df_filtered.iterrows():
-    folium.Marker(location=[row['lat'], row['lon']], popup=row['properties.highway']).add_to(map_viz)
+    popup_content = f"Type: {row['highway']}"
+    folium.Marker(location=[row['lat'], row['lon']], popup=popup_content).add_to(map_viz)
 
 # Sauvegarder la carte
-map_viz.save("./mistral/carte_dinan.html")
+map_viz.save("carte_dinan.html")
+
+print(f"Carte générée avec {len(df_filtered)} éléments.")
