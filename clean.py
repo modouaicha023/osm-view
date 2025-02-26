@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import folium
 
 df = pd.read_csv('osm__senegal_dataset.csv', low_memory=False)
 
