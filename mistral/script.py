@@ -12,7 +12,7 @@ from folium import plugins
 CHATEAU_COORDS = (48.45038746219548, -2.0447748346342434)  # Coordonnées du Château de Dinan
 MAX_DISTANCE_KM = 15  # Rayon maximal de déplacement
 NUM_DRIVERS = 3
-CAPACITY_PER_DRIVER = 12
+CAPACITY_PER_DRIVER = 8
 ARRIVAL_WINDOW = ("8:00", "12:00")
 DEPARTURE_WINDOW = ("14:00", "16:00")
 
