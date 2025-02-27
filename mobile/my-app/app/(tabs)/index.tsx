@@ -7,13 +7,38 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Dimensions,
 } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
+import Mapbox from "@rnmapbox/maps";
 import { Picker } from "@react-native-picker/picker";
-import axios from "axios";
-import { Point, Route, Region } from "@/types";
+import axios, { AxiosError } from "axios";
+import { Button, Card, Icon, Overlay } from '@rneui/themed';
+import Toast from 'react-native-toast-message';
+import { Stack } from 'expo-router';
+import * as Location from 'expo-location';
 
-// Remplacez cette URL par l'adresse IP de votre serveur local ou votre serveur de production
+// Debug configuration
+const DEBUG = __DEV__;
+const log = {
+  info: (...args: any[]) => DEBUG && console.log('[INFO]', ...args),
+  error: (...args: any[]) => DEBUG && console.error('[ERROR]', ...args),
+  warn: (...args: any[]) => DEBUG && console.warn('[WARN]', ...args),
+  debug: (...args: any[]) => DEBUG && console.debug('[DEBUG]', ...args),
+};
+
+// Mapbox configuration
+const MAPBOX_ACCESS_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN;
+if (!MAPBOX_ACCESS_TOKEN) {
+  throw new Error('MAPBOX_ACCESS_TOKEN is not set in environment variables');
+}
+
+Mapbox.setAccessToken(MAPBOX_ACCESS_TOKEN);
+if (DEBUG) {
+  Mapbox.setTelemetryEnabled(false);
+  log.info('Mapbox initialized in debug mode');
+}
+
+// Replace this URL with your local server IP or production server address
 const API_URL = "http://192.168.1.13:5000/api";
 
 const colors = [
@@ -26,230 +51,134 @@ const colors = [
   "#FFC0CB",
 ];
 
-export default function TabOneScreen() {
-  const [loading, setLoading] = useState<boolean>(false);
-  const [points, setPoints] = useState<Point[]>([]);
-  const [routes, setRoutes] = useState<Route[]>([]);
-  const [selectedDriver, setSelectedDriver] = useState<number>(0);
-  const [numDrivers, setNumDrivers] = useState<number>(3);
-  const [capacity, setCapacity] = useState<number>(8);
-  const [region, setRegion] = useState<Region>({
-    latitude: 48.45038746219548,
-    longitude: -2.0447748346342434,
-    latitudeDelta: 0.1,
-    longitudeDelta: 0.1,
-  });
+// Types
+interface MapPoint {
+  id: number;
+  lat: number;
+  lon: number;
+  passengers: number;
+  distance_to_chateau: number;
+  poi_type: string;
+  arrival_time: string;
+  name: string;
+  type?: 'pickup' | 'dropoff';
+}
 
-  // Charger les points au démarrage
+interface Stop {
+  coords: [number, number];
+  name: string;
+  stop_num: number;
+  passengers?: number;
+}
+
+interface RouteData {
+  driver_id: number;
+  points: [number, number][];
+  stops: Stop[];
+  distance: number;
+  load: number;
+}
+
+interface Stats {
+  total_points: number;
+  max_distance_km: number;
+  num_drivers: number;
+  capacity_per_driver: number;
+}
+
+interface StatsCardProps {
+  title: string;
+  value: string | number;
+}
+
+interface DriverInfoProps {
+  driver: RouteData;
+  isSelected: boolean;
+  onSelect: () => void;
+}
+
+interface Region {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+}
+
+const TimeWindow = ({ label, start, end }: { label: string; start: string; end: string }) => (
+  <Card containerStyle={styles.timeCard}>
+    <Text style={styles.timeLabel}>{label}</Text>
+    <Text style={styles.timeValue}>{start} - {end}</Text>
+  </Card>
+);
+const ErrorMessage = ({ message }: { message: string }) => (
+  <View style={{ padding: 10, backgroundColor: '#ffebee', borderRadius: 5, margin: 10 }}>
+    <Text style={{ color: '#d32f2f' }}>{message}</Text>
+  </View>
+);
+
+const StatsCard: React.FC<StatsCardProps> = ({ title, value }) => (
+  <Card containerStyle={styles.statsCard}>
+    <Text style={styles.statsTitle}>{title}</Text>
+    <Text style={styles.statsValue}>{value}</Text>
+  </Card>
+);
+
+const DriverInfo: React.FC<DriverInfoProps> = ({ driver, isSelected, onSelect }) => (
+  <Card containerStyle={[styles.driverCard, isSelected && styles.selectedDriver]}>
+    <Text style={styles.driverTitle}>Driver {driver.driver_id}</Text>
+    <Text style={styles.driverStats}>Stops: {driver.stops.length - 2}</Text>
+    <Button
+      title={isSelected ? 'Selected' : 'Select'}
+      onPress={onSelect}
+      buttonStyle={isSelected ? styles.selectedButton : styles.selectButton}
+    />
+  </Card>
+);
+
+export default function TabsIndex() {
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   useEffect(() => {
-    fetchPoints();
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          setErrorMsg('Permission to access location was denied');
+          return;
+        }
+
+        const location = await Location.getCurrentPositionAsync({});
+        setLocation(location);
+        log.info('Location obtained:', location);
+      } catch (error) {
+        log.error('Error getting location:', error);
+        setErrorMsg('Error getting location');
+      }
+    })();
   }, []);
-
-  const fetchPoints = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get(`${API_URL}/points`);
-      setPoints(response.data);
-      setLoading(false);
-    } catch (error) {
-      console.error("Error fetching points:", error);
-      setLoading(false);
-      Alert.alert("Erreur", "Impossible de charger les points");
-    }
-  };
-
-  const optimizeRoutes = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.post(`${API_URL}/optimize`, {
-        num_drivers: numDrivers,
-        capacity_per_driver: capacity,
-        max_distance_km: 15,
-      });
-
-      setRoutes(response.data.routes);
-      setLoading(false);
-
-      Alert.alert(
-        "Optimisation réussie",
-        `Distance totale: ${response.data.total_distance.toFixed(2)} km\n` +
-          `Passagers: ${response.data.total_passengers}`
-      );
-    } catch (error) {
-      console.error("Error optimizing routes:", error);
-      setLoading(false);
-      Alert.alert("Erreur", "Échec de l'optimisation des itinéraires");
-    }
-  };
-
-  const getDriverRoute = (): Route | null => {
-    if (!routes || routes.length === 0) return null;
-    return routes.find((r) => r.driver_id === selectedDriver) || routes[0];
-  };
-
-  const renderDriverRoute = () => {
-    const route = getDriverRoute();
-    if (!route) return null;
-
-    const routePoints = route.points.map((point) => ({
-      latitude: point[0],
-      longitude: point[1],
-    }));
-
-    const color = colors[selectedDriver % colors.length];
-
-    return (
-      <>
-        <Polyline
-          coordinates={routePoints}
-          strokeColor={color}
-          strokeWidth={4}
-        />
-        {route.stops.map((stop, index) => (
-          <Marker
-            key={`stop-${index}`}
-            coordinate={{
-              latitude: stop.coords[0],
-              longitude: stop.coords[1],
-            }}
-            title={stop.name}
-            description={`Arrêt ${index}`}
-            pinColor={
-              index === 0 || index === route.stops.length - 1 ? "red" : color
-            }
-          />
-        ))}
-      </>
-    );
-  };
-
-  const renderDriverInfo = () => {
-    const route = getDriverRoute();
-    if (!route) return null;
-
-    return (
-      <View style={styles.driverInfo}>
-        <Text style={styles.driverTitle}>Chauffeur {selectedDriver}</Text>
-        <Text>Distance: {route.distance.toFixed(2)} km</Text>
-        <Text>Passagers: {route.load}</Text>
-        <Text>Arrêts: {route.stops.length - 2}</Text>{" "}
-        {/* -2 pour exclure départ/retour au château */}
-      </View>
-    );
-  };
 
   return (
     <View style={styles.container}>
-      <MapView
-        style={styles.map}
-        region={region}
-        onRegionChangeComplete={setRegion}
-      >
-        {/* Château (dépôt) */}
-        <Marker
-          coordinate={{
-            latitude: 48.45038746219548,
-            longitude: -2.0447748346342434,
-          }}
-          title="Château de Dinan"
-          description="Point de départ"
-          pinColor="red"
-        />
-
-        {/* Points de ramassage */}
-        {points.map((point) => (
-          <Marker
-            key={`point-${point.id}`}
-            coordinate={{
-              latitude: point.lat,
-              longitude: point.lon,
-            }}
-            title={point.name}
-            description={`${point.passengers} passagers`}
-            opacity={0.7}
-            pinColor="blue"
-          />
-        ))}
-
-        {/* Itinéraire du chauffeur sélectionné */}
-        {renderDriverRoute()}
-      </MapView>
-
-      <View style={styles.controls}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={styles.configSection}>
-            <Text style={styles.label}>Nombre de chauffeurs:</Text>
-            <Picker
-              selectedValue={numDrivers.toString()}
-              style={styles.picker}
-              onValueChange={(value) => setNumDrivers(Number(value))}
-              enabled={!loading}
-            >
-              {[1, 2, 3, 4, 5].map((num) => (
-                <Picker.Item
-                  key={`drivers-${num}`}
-                  label={`${num}`}
-                  value={num.toString()}
-                />
-              ))}
-            </Picker>
-          </View>
-
-          <View style={styles.configSection}>
-            <Text style={styles.label}>Capacité par chauffeur:</Text>
-            <Picker
-              selectedValue={capacity.toString()} // Convert to string
-              style={styles.picker}
-              onValueChange={(value) => setCapacity(Number(value))}
-              enabled={!loading}
-            >
-              {[4, 6, 8, 10, 12].map((num) => (
-                <Picker.Item
-                  key={`capacity-${num}`}
-                  label={`${num}`}
-                  value={num.toString()} // Convert to string
-                />
-              ))}
-            </Picker>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.button, loading && styles.disabledButton]}
-            onPress={optimizeRoutes}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Optimiser</Text>
-            )}
-          </TouchableOpacity>
-        </ScrollView>
-      </View>
-
-      {routes.length > 0 && (
-        <View style={styles.driverSelector}>
-          <Text style={styles.label}>Sélectionner chauffeur:</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {routes.map((route) => (
-              <TouchableOpacity
-                key={`driver-${route.driver_id}`}
-                style={[
-                  styles.driverButton,
-                  { backgroundColor: colors[route.driver_id % colors.length] },
-                  selectedDriver === route.driver_id &&
-                    styles.selectedDriverButton,
-                ]}
-                onPress={() => setSelectedDriver(route.driver_id)}
-              >
-                <Text style={styles.driverButtonText}>{route.driver_id}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+      <Stack.Screen options={{ title: 'OSM View' }} />
+      {errorMsg ? (
+        <View style={styles.center}>
+          <Text style={styles.errorText}>{errorMsg}</Text>
         </View>
+      ) : !location ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#4285F4" />
+          <Text>Loading map...</Text>
+        </View>
+      ) : (
+        <Mapbox.MapView style={styles.map}>
+          <Mapbox.Camera
+            zoomLevel={14}
+            centerCoordinate={[location.coords.longitude, location.coords.latitude]}
+          />
+          <Mapbox.UserLocation />
+        </Mapbox.MapView>
       )}
-
-      {renderDriverInfo()}
     </View>
   );
 }
@@ -257,6 +186,11 @@ export default function TabOneScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   map: {
     flex: 1,
@@ -308,35 +242,86 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     margin: 10,
   },
-  driverButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 10,
+  driverCard: {
+    width: '30%',
+    padding: 8,
   },
-  selectedDriverButton: {
-    borderWidth: 3,
-    borderColor: "#fff",
-  },
-  driverButtonText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  driverInfo: {
-    position: "absolute",
-    bottom: 50,
-    left: 0,
-    right: 0,
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    padding: 15,
-    borderRadius: 5,
-    margin: 10,
+  selectedDriver: {
+    borderColor: '#4285F4',
+    borderWidth: 2,
   },
   driverTitle: {
-    fontWeight: "bold",
     fontSize: 16,
+    fontWeight: 'bold',
+  },
+  driverStats: {
+    fontSize: 14,
+    color: '#666',
+  },
+  selectButton: {
+    backgroundColor: '#4285F4',
+  },
+  selectedButton: {
+    backgroundColor: '#4CAF50',
+  },
+  markerContainer: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markerText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  timeWindows: {
+    position: 'absolute',
+    top: 10,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 10,
+  },
+  timeCard: {
+    width: '45%',
+  },
+  timeLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  timeValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  stats: {
+    position: 'absolute',
+    top: 120,
+    right: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    padding: 10,
+    borderRadius: 5,
+    maxWidth: 200,
+  },
+  statsTitle: {
+    fontWeight: 'bold',
     marginBottom: 5,
+  },
+  errorContainer: {
+    padding: 20,
+    width: 300,
+  },
+  errorText: {
+    color: 'red',
+    textAlign: 'center',
+    margin: 20,
+  },
+  statsCard: {
+    width: '45%',
+  },
+  statsValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

@@ -1,19 +1,24 @@
 import { Stack } from "expo-router";
 import { useEffect } from "react";
 import { Platform, LogBox } from "react-native";
-
-// Ignorer les avertissements liés au Picker sur Android
-// (à supprimer une fois que le problème sera résolu dans le package)
-useEffect(() => {
-  if (Platform.OS === "android") {
-    LogBox.ignoreLogs(["Picker has been extracted"]);
-  }
-}, []);
+import Toast from 'react-native-toast-message';
+import { ThemeProvider } from '@rneui/themed';
+import { theme } from "@/theme";
 
 export default function RootLayout() {
+  // Ignorer les avertissements liés au Picker sur Android
+  useEffect(() => {
+    if (Platform.OS === "android") {
+      LogBox.ignoreLogs(["Picker has been extracted"]);
+    }
+  }, []);
+
   return (
-    <Stack>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-    </Stack>
+    <ThemeProvider theme={theme}>
+      <Stack>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      </Stack>
+      <Toast />
+    </ThemeProvider>
   );
 }

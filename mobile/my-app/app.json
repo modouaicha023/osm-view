@@ -1,41 +1,38 @@
 {
   "expo": {
-    "name": "my-app",
-    "slug": "my-app",
+    "name": "OSM View",
+    "slug": "osm-view",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
-    "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "userInterfaceStyle": "light",
+    "scheme": "osm-view",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
-      "supportsTablet": true
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+      "supportsTablet": true,
+      "bundleIdentifier": "com.akassaa.osmview",
+      "config": {
+        "usesNonExemptEncryption": false
       }
     },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+    "android": {
+      "package": "com.akassaa.osmview",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
-        }
-      ]
+      ["@rnmapbox/maps", {
+        "mapboxAccessToken": "${process.env.MAPBOX_ACCESS_TOKEN}",
+        "androidVersion": "10.13.0",
+        "RNMapboxMapsVersion": "11.0.0"
+      }],
+      ["expo-location", {
+        "locationWhenInUsePermission": "Show current location on map."
+      }]
     ],
-    "experiments": {
-      "typedRoutes": true
-    }
+    "newArchEnabled": true
   }
 }
