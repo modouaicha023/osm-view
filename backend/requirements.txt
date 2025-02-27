@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+folium
+ortools
+numpy
+pandas
+sqlalchemy
+psycopg2
