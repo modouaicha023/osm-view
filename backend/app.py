@@ -1,25 +1,33 @@
+import os
 from fastapi import FastAPI, HTTPException
 from osm_loader import load_osm_data
-from vrp_solver import solve_vrp
-import folium
-import json
-
+from vrp_solver import solve_vrp, simple_route_distribution
+import logging
 app = FastAPI()
 
 CHATEAU_COORDS = (48.450387, -2.044774)
 MAX_DISTANCE_KM = 15
 
+GEOJSON_FILE = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), 'dinan_osm_data.geojson')
+
 
 @app.get("/optimisation")
 def optimisation():
     try:
-        geojson_file = "data/dinan_osm_data.geojson"
+        geojson_file = GEOJSON_FILE
         points = load_osm_data(geojson_file, CHATEAU_COORDS, MAX_DISTANCE_KM)
 
         if not points:
             raise HTTPException(status_code=404, detail="Aucun point trouvé.")
 
-        data = solve_vrp(CHATEAU_COORDS, points)
+        try:
+            data = solve_vrp(CHATEAU_COORDS, points)
+        except Exception as e:
+            logging.warning(
+                f"VRP solver failed: {e}. Using simple route distribution.")
+            data = simple_route_distribution(CHATEAU_COORDS, points)
+
         return {"routes": data}
 
     except Exception as e:
@@ -30,8 +38,7 @@ def optimisation():
 def get_route(driver_id: int):
     """ Récupère un trajet spécifique """
     try:
-        geojson_file = "data/dinan_osm_data.geojson"
-        points = load_osm_data(geojson_file, CHATEAU_COORDS, MAX_DISTANCE_KM)
+        points = load_osm_data(GEOJSON_FILE, CHATEAU_COORDS, MAX_DISTANCE_KM)
 
         if not points:
             raise HTTPException(status_code=404, detail="Aucun point trouvé.")
@@ -47,6 +54,32 @@ def get_route(driver_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/optimize_route")
+async def optimize_custom_route(request: Request):
+    data = await request.json()
+    start_point = data.get('start_point')
+    delivery_points = data.get('delivery_points')
+    vehicle_count = data.get('vehicle_count', 2)
+    max_distance = data.get('max_distance', 15)
+
+    points = [
+        {
+            'lat': point['latitude'],
+            'lon': point['longitude'],
+            'passengers': random.randint(1, 3),
+            'name': 'Delivery Point'
+        }
+        for point in delivery_points
+    ]
+
+    routes = solve_vrp(
+        (start_point['latitude'], start_point['longitude']),
+        points,
+        max_points=30
+    )
+
+    return {"routes": routes}
 
 if __name__ == "__main__":
     import uvicorn

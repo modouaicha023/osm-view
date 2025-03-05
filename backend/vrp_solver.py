@@ -1,20 +1,35 @@
 from ortools.constraint_solver import routing_enums_pb2, pywrapcp
 import numpy as np
 import logging
+import time
+import random
 from osm_loader import haversine
+from utils import generate_random_time
 
-# Configuration des logs
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
-def solve_vrp(chateau_coords, points):
+def solve_vrp(chateau_coords, points, max_points=30):
     """
-    Résout le problème du VRP en prenant en compte les fenêtres horaires et la capacité des véhicules.
+    Résout le problème du VRP avec une approche simplifiée
     """
+    start_time = time.time()
+
+    # Limiter le nombre de points pour éviter la surcharge
+    points = points[:max_points]
+    logging.info(f"Résolution VRP avec {len(points)} points")
+
+    # Préparer les points
+    for point in points:
+        point['arrival_time'] = point.get(
+            'arrival_time', generate_random_time('08:00', '16:00'))
+        point['name'] = point.get('name', 'Unnamed Location')
+
+    # Préparer les localisations
     locations = [chateau_coords] + [(p['lat'], p['lon']) for p in points]
     num_locations = len(locations)
 
-    # Création de la matrice de distances
+    # Matrice de distances
     distance_matrix = np.zeros((num_locations, num_locations))
     for i in range(num_locations):
         for j in range(num_locations):
@@ -22,99 +37,116 @@ def solve_vrp(chateau_coords, points):
                 distance_matrix[i][j] = haversine(
                     locations[i][1], locations[i][0],
                     locations[j][1], locations[j][0]
-                ) * 1000  # Conversion en mètres
+                ) * 1000  # en mètres
 
-    demands = [0] + [p['passengers'] for p in points]
-    vehicle_capacities = [8] * 3
-    num_vehicles = 3
+    # Paramètres de base
+    num_vehicles = 2
+    vehicle_capacity = 10
+    vehicle_capacities = [vehicle_capacity] * num_vehicles
 
-    # Fenêtres horaires
-    # Le château est ouvert de 8h (480 min) à 16h (960 min)
-    time_windows = [(0, 480)]
+    # Demandes (passagers)
+    demands = [0] + [p.get('passengers', 1) for p in points]
+
+    # Fenêtres horaires simplifiées
+    time_windows = [(0, 600)]  # 10 heures de plage
     for p in points:
-        # Matin ou après-midi
-        min_time = 480 if p["arrival_time"] >= "08:00" else 840
-        max_time = min_time + 240  # Plage de 4h
-        time_windows.append((min_time, max_time))
+        arrival_time = p.get('arrival_time', '08:00')
+        hours, minutes = map(int, arrival_time.split(':'))
+        min_time = hours * 60 + minutes
+        # 2h de fenêtre par point
+        time_windows.append((min_time, min_time + 120))
 
-    data = {
-        "distance_matrix": distance_matrix,
-        "demands": demands,
-        "num_vehicles": num_vehicles,
-        "depot": 0,
-        "vehicle_capacities": vehicle_capacities,
-        "time_windows": time_windows,
-    }
+    try:
+        # Gestionnaire de routage
+        manager = pywrapcp.RoutingIndexManager(
+            len(distance_matrix), num_vehicles, 0)
+        routing = pywrapcp.RoutingModel(manager)
 
-    manager = pywrapcp.RoutingIndexManager(
-        len(distance_matrix), num_vehicles, 0)
-    routing = pywrapcp.RoutingModel(manager)
+        # Fonction de distance
+        def distance_callback(from_index, to_index):
+            from_node = manager.IndexToNode(from_index)
+            to_node = manager.IndexToNode(to_index)
+            return int(distance_matrix[from_node][to_node])
 
-    # Fonction de coût : distance
-    def distance_callback(from_index, to_index):
-        from_node = manager.IndexToNode(from_index)
-        to_node = manager.IndexToNode(to_index)
-        return int(distance_matrix[from_node][to_node])
+        transit_callback_index = routing.RegisterTransitCallback(
+            distance_callback)
+        routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
 
-    transit_callback_index = routing.RegisterTransitCallback(distance_callback)
-    routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+        # Contrainte de capacité
+        def demand_callback(from_index):
+            from_node = manager.IndexToNode(from_index)
+            return demands[from_node]
 
-    # Ajout des contraintes de capacité
-    def demand_callback(from_index):
-        from_node = manager.IndexToNode(from_index)
-        return demands[from_node]
+        demand_callback_index = routing.RegisterUnaryTransitCallback(
+            demand_callback)
+        routing.AddDimensionWithVehicleCapacity(
+            demand_callback_index, 0, vehicle_capacities, True, "Capacity"
+        )
 
-    demand_callback_index = routing.RegisterUnaryTransitCallback(
-        demand_callback)
-    routing.AddDimensionWithVehicleCapacity(
-        demand_callback_index, 0, vehicle_capacities, True, "Capacity"
-    )
+        # Paramètres de recherche simplifiés
+        search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+        search_parameters.first_solution_strategy = (
+            routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+        )
+        search_parameters.local_search_metaheuristic = (
+            routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
+        )
+        search_parameters.time_limit.seconds = 10  # Limite de 10 secondes
 
-    # Ajout des fenêtres horaires
-    def time_callback(from_index, to_index):
-        return distance_matrix[manager.IndexToNode(from_index)][manager.IndexToNode(to_index)] // 100
+        # Résolution
+        solution = routing.SolveWithParameters(search_parameters)
 
-    time_callback_index = routing.RegisterTransitCallback(time_callback)
-    routing.AddDimension(
-        time_callback_index,
-        30,  # Temps d'attente max à un arrêt
-        960,  # Plage de temps max (16h)
-        False,
-        "Time",
-    )
-    time_dimension = routing.GetDimensionOrDie("Time")
+        # Si pas de solution, on génère une route simple
+        if not solution:
+            logging.warning(
+                "Aucune solution optimale trouvée. Génération d'une route simple.")
+            return [
+                points[i:i+len(points)//num_vehicles]
+                for i in range(0, len(points), len(points)//num_vehicles)
+            ]
 
-    for i, window in enumerate(time_windows):
-        index = manager.NodeToIndex(i)
-        time_dimension.CumulVar(index).SetRange(window[0], window[1])
+        # Construction des routes
+        routes = []
+        for vehicle_id in range(num_vehicles):
+            route = []
+            index = routing.Start(vehicle_id)
+            while not routing.IsEnd(index):
+                node_index = manager.IndexToNode(index)
+                if node_index != 0:  # Ignorer le dépôt
+                    point = points[node_index - 1]
+                    route.append({
+                        "lat": point["lat"],
+                        "lon": point["lon"],
+                        "name": point.get("name", "Point"),
+                        "arrival_time": point.get("arrival_time", "")
+                    })
+                index = solution.Value(routing.NextVar(index))
+            routes.append(route)
 
-    # Paramètres de recherche
-    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-    search_parameters.first_solution_strategy = (
-        routing_enums_pb2.FirstSolutionStrategy.SAVINGS
-    )
+        end_time = time.time()
+        logging.info(
+            f"Temps de résolution : {end_time - start_time:.2f} secondes")
+        return routes
 
-    solution = routing.SolveWithParameters(search_parameters)
+    except Exception as e:
+        logging.error(f"Erreur lors de la résolution VRP : {e}")
+        # Fallback: route simple aléatoire
+        return [
+            random.sample(points, len(points)//num_vehicles)
+            for _ in range(num_vehicles)
+        ]
 
-    if not solution:
-        logging.warning("Aucune solution trouvée.")
-        return []
+# Ajout d'un fallback simple si tout échoue
 
-    routes = []
-    for vehicle_id in range(num_vehicles):
-        index = routing.Start(vehicle_id)
-        route = []
-        while not routing.IsEnd(index):
-            node_index = manager.IndexToNode(index)
-            if node_index != 0:
-                point = points[node_index - 1]
-                route.append({
-                    "lat": point["lat"],
-                    "lon": point["lon"],
-                    "name": point["name"],
-                    "arrival_time": point["arrival_time"]
-                })
-            index = solution.Value(routing.NextVar(index))
-        routes.append(route)
 
+def simple_route_distribution(chateau_coords, points):
+    """
+    Distribution simple des points si VRP échoue
+    """
+    points = points[:30]  # Limiter à 30 points
+    num_vehicles = 2
+    routes = [
+        points[i:i+len(points)//num_vehicles]
+        for i in range(0, len(points), len(points)//num_vehicles)
+    ]
     return routes

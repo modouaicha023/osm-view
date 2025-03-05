@@ -1,6 +1,8 @@
 import json
 import random
 from math import radians, cos, sin, asin, sqrt
+from utils import generate_random_time
+import logging
 
 
 def haversine(lon1, lat1, lon2, lat2):
@@ -16,16 +18,17 @@ def haversine(lon1, lat1, lon2, lat2):
     return c * r
 
 
-def load_osm_data(geojson_file, chateau_coords, max_distance_km):
+def load_osm_data(geojson_file, chateau_coords, max_distance_km, max_points=50):
     """
     Charge les données OSM et filtre les points dans le rayon maximum.
     """
-    with open(geojson_file, 'r') as f:
+    with open(geojson_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
     points = []
     for feature in data['features']:
         coords = None
+        name = feature.get('properties', {}).get('name', 'Unnamed Location')
 
         if feature['geometry']['type'] == 'Point':
             coords = (feature['geometry']['coordinates'][1],
@@ -44,7 +47,10 @@ def load_osm_data(geojson_file, chateau_coords, max_distance_km):
                     'lat': coords[0],
                     'lon': coords[1],
                     'passengers': passengers,
-                    'distance_to_chateau': distance
+                    'distance_to_chateau': distance,
+                    'name': name,
+                    'arrival_time': generate_random_time('08:00', '16:00')
                 })
-
+    logging.info("done osm")
+    points = points[:max_points]
     return points
