@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from osm_loader import load_osm_data
 from vrp_solver import solve_vrp
 import folium
@@ -12,39 +12,40 @@ MAX_DISTANCE_KM = 15
 
 @app.get("/optimisation")
 def optimisation():
-    geojson_file = "data/dinan_osm_data.geojson"
-    points = load_osm_data(geojson_file, CHATEAU_COORDS, MAX_DISTANCE_KM)
+    try:
+        geojson_file = "data/dinan_osm_data.geojson"
+        points = load_osm_data(geojson_file, CHATEAU_COORDS, MAX_DISTANCE_KM)
 
-    if not points:
-        return {"message": "Aucun point trouvé dans la zone spécifiée."}
+        if not points:
+            raise HTTPException(status_code=404, detail="Aucun point trouvé.")
 
-    data = solve_vrp(CHATEAU_COORDS, points)
+        data = solve_vrp(CHATEAU_COORDS, points)
+        return {"routes": data}
 
-    return {"routes": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/carte")
-def generate_map():
-    geojson_file = "data/dinan_osm_data.geojson"
-    points = load_osm_data(geojson_file, CHATEAU_COORDS, MAX_DISTANCE_KM)
+@app.get("/routes/{driver_id}")
+def get_route(driver_id: int):
+    """ Récupère un trajet spécifique """
+    try:
+        geojson_file = "data/dinan_osm_data.geojson"
+        points = load_osm_data(geojson_file, CHATEAU_COORDS, MAX_DISTANCE_KM)
 
-    if not points:
-        return {"message": "Aucun point trouvé."}
+        if not points:
+            raise HTTPException(status_code=404, detail="Aucun point trouvé.")
 
-    map_viz = folium.Map(location=CHATEAU_COORDS, zoom_start=13)
+        data = solve_vrp(CHATEAU_COORDS, points)
 
-    folium.Marker(location=CHATEAU_COORDS, popup="Château de Dinan",
-                  icon=folium.Icon(color="red")).add_to(map_viz)
+        if driver_id >= len(data):
+            raise HTTPException(
+                status_code=404, detail="Aucune route pour ce chauffeur.")
 
-    for point in points:
-        folium.Marker(
-            location=[point["lat"], point["lon"]],
-            popup=f"{point['name']} ({point['passengers']} passagers)",
-            icon=folium.Icon(color="blue")
-        ).add_to(map_viz)
+        return {"driver_id": driver_id, "route": data[driver_id]}
 
-    map_viz.save("map.html")
-    return {"message": "Carte générée avec succès.", "file": "map.html"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

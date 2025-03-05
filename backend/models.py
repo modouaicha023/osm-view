@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, Float, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-DATABASE_URL = "postgresql://user:password@localhost/tour_optimization"
+DATABASE_URL = "postgresql://admin:passer@localhost/tour_optimization"
 
 Base = declarative_base()
 
