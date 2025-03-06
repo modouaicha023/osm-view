@@ -1,9 +1,18 @@
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from osm_loader import load_osm_data
 from vrp_solver import solve_vrp, simple_route_distribution
 import logging
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 CHATEAU_COORDS = (48.450387, -2.044774)
 MAX_DISTANCE_KM = 15

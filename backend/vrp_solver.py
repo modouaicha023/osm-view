@@ -9,7 +9,7 @@ from utils import generate_random_time
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
-def solve_vrp(chateau_coords, points, max_points=30):
+def solve_vrp(chateau_coords, points, max_points=8):
     """
     Résout le problème du VRP avec une approche simplifiée
     """
@@ -40,8 +40,8 @@ def solve_vrp(chateau_coords, points, max_points=30):
                 ) * 1000  # en mètres
 
     # Paramètres de base
-    num_vehicles = 2
-    vehicle_capacity = 10
+    num_vehicles = 3
+    vehicle_capacity = 8
     vehicle_capacities = [vehicle_capacity] * num_vehicles
 
     # Demandes (passagers)
@@ -91,7 +91,7 @@ def solve_vrp(chateau_coords, points, max_points=30):
         search_parameters.local_search_metaheuristic = (
             routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
         )
-        search_parameters.time_limit.seconds = 10  # Limite de 10 secondes
+        search_parameters.time_limit.seconds = 30  # Limite de 30 secondes
 
         # Résolution
         solution = routing.SolveWithParameters(search_parameters)
@@ -143,7 +143,7 @@ def simple_route_distribution(chateau_coords, points):
     """
     Distribution simple des points si VRP échoue
     """
-    points = points[:30]  # Limiter à 30 points
+    points = points[:8]  # Limiter à 8 points
     num_vehicles = 2
     routes = [
         points[i:i+len(points)//num_vehicles]
