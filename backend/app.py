@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from osm_loader import load_osm_data
 from vrp_solver import solve_vrp, simple_route_distribution
 import logging
+import random
+
 app = FastAPI()
 
 app.add_middleware(

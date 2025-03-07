@@ -18,7 +18,7 @@ def haversine(lon1, lat1, lon2, lat2):
     return c * r
 
 
-def load_osm_data(geojson_file, chateau_coords, max_distance_km, max_points=50):
+def load_osm_data(geojson_file, chateau_coords, max_distance_km, max_points=100):
     """
     Charge les données OSM et filtre les points dans le rayon maximum.
     """
@@ -51,6 +51,6 @@ def load_osm_data(geojson_file, chateau_coords, max_distance_km, max_points=50):
                     'name': name,
                     'arrival_time': generate_random_time('08:00', '16:00')
                 })
-    logging.info("done osm")
+    logging.info(len(points))
     points = points[:max_points]
     return points
