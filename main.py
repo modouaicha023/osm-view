@@ -8,10 +8,8 @@ def main():
     parser.add_argument('--debug', action='store_true', help='Mode debug')
     args = parser.parse_args()
     
-    # Créer les dossiers nécessaires 
     os.makedirs('static', exist_ok=True)
     
-    # Démarrer le serveur
     app.run(debug=args.debug, host='0.0.0.0', port=args.port)
 
 if __name__ == "__main__":

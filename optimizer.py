@@ -1,4 +1,3 @@
-# optimizer.py
 import numpy as np
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
@@ -11,8 +10,8 @@ class RouteOptimizer:
         self.max_distance_km = max_distance_km
         self.num_drivers = num_drivers
         self.capacity_per_driver = capacity_per_driver
-        self.arrival_window = (8, 12)  # 8h à 12h
-        self.departure_window = (14, 16)  # 14h à 16h
+        self.arrival_window = (8, 12) 
+        self.departure_window = (14, 16) 
         
     def validate_points(self, points):
         """Valide les points avant l'optimisation"""
@@ -59,7 +58,7 @@ class RouteOptimizer:
                     matrix[i][j] = self.haversine(
                         locations[i][1], locations[i][0],
                         locations[j][1], locations[j][0]
-                    ) * 1000  # Convertir en mètres pour OR-Tools
+                    ) * 1000
         
         return matrix
     
@@ -71,16 +70,14 @@ class RouteOptimizer:
             locations = [self.depot_coords] + [(p['lat'], p['lon']) for p in points]
             distance_matrix = self.build_distance_matrix(locations)
             
-            demands = [0]  # Dépôt n'a pas de demande
-            time_windows = [(0, 24*60)]  # Dépôt ouvert toute la journée
+            demands = [0] 
+            time_windows = [(0, 24*60)]
             
             for p in points:
                 demands.append(p['passengers'])
-                # Convertir l'heure d'arrivée en minutes
                 arrival_time = list(map(int, p['arrival_time'].split(':')))
                 arrival_minutes = arrival_time[0] * 60 + arrival_time[1]
                 
-                # Vérifier la fenêtre horaire
                 if not (self.arrival_window[0] * 60 <= arrival_minutes <= self.arrival_window[1] * 60):
                     arrival_minutes = self.arrival_window[0] * 60
                 
@@ -116,7 +113,6 @@ class RouteOptimizer:
             )
             routing = pywrapcp.RoutingModel(manager)
             
-            # Fonction de coût (distance)
             def distance_callback(from_index, to_index):
                 from_node = manager.IndexToNode(from_index)
                 to_node = manager.IndexToNode(to_index)
@@ -125,7 +121,6 @@ class RouteOptimizer:
             transit_callback_index = routing.RegisterTransitCallback(distance_callback)
             routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
             
-            # Contrainte de capacité
             def demand_callback(from_index):
                 from_node = manager.IndexToNode(from_index)
                 return data['demands'][from_node]
@@ -139,29 +134,25 @@ class RouteOptimizer:
                 'Capacity'
             )
             
-            # Contrainte de temps
             def time_callback(from_index, to_index):
                 from_node = manager.IndexToNode(from_index)
                 to_node = manager.IndexToNode(to_index)
-                # Convertir la distance en temps (supposons 30km/h en moyenne)
-                return int(data['distance_matrix'][from_node][to_node] * 2)  # 2 minutes par km
+                return int(data['distance_matrix'][from_node][to_node] * 2)  
             
             time_callback_index = routing.RegisterTransitCallback(time_callback)
             routing.AddDimension(
                 time_callback_index,
-                30,  # slack (temps d'attente autorisé)
-                24 * 60,  # max time per vehicle
-                False,  # don't force start cumul to zero
+                30, 
+                24 * 60, 
+                False,
                 'Time'
             )
             time_dimension = routing.GetDimensionOrDie('Time')
             
-            # Ajouter les fenêtres de temps
             for location_idx, time_window in enumerate(data['time_windows']):
                 index = manager.NodeToIndex(location_idx)
                 time_dimension.CumulVar(index).SetRange(time_window[0], time_window[1])
             
-            # Essayer différentes stratégies
             best_solution = None
             best_cost = float('inf')
             best_strategy = None

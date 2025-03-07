@@ -19,16 +19,14 @@ def haversine(lon1, lat1, lon2, lat2):
     Returns:
         float: Distance en kilomètres
     """
-    # Convertir les degrés en radians
     lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
 
-    # Formule de Haversine
     dlon = lon2 - lon1
     dlat = lat2 - lat1
     a = math.sin(dlat/2)**2 + math.cos(lat1) * \
         math.cos(lat2) * math.sin(dlon/2)**2
     c = 2 * math.asin(math.sqrt(a))
-    r = 6371  # Rayon de la Terre en km
+    r = 6371 
 
     return c * r
 

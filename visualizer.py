@@ -1,4 +1,3 @@
-# visualizer.py
 import folium
 from folium import plugins
 import pandas as pd
@@ -18,14 +17,12 @@ class RouteVisualizer:
         map_viz = folium.Map(
             location=[self.depot_coords[0], self.depot_coords[1]], zoom_start=13)
 
-        # Ajouter le marqueur du dépôt
         folium.Marker(
             location=[self.depot_coords[0], self.depot_coords[1]],
             popup="Château de Dinan",
             icon=folium.Icon(color="red", icon="building", prefix="fa")
         ).add_to(map_viz)
 
-        # Ajouter le cercle de rayon max
         folium.Circle(
             location=[self.depot_coords[0], self.depot_coords[1]],
             radius=self.max_distance_km * 1000,
@@ -36,7 +33,6 @@ class RouteVisualizer:
             popup=f"Zone de {self.max_distance_km} km"
         ).add_to(map_viz)
 
-        # Ajouter les marqueurs pour chaque point
         for point in points_data:
             popup_content = (f"ID: {point['id']}<br>"
                              f"Nom: {point['name']}<br>"
@@ -51,12 +47,10 @@ class RouteVisualizer:
                 icon=folium.Icon(color="blue", icon="user", prefix="fa")
             ).add_to(map_viz)
 
-        # Ajouter les routes si disponibles
         if routes:
             for vehicle_id, route in enumerate(routes):
                 color = self.colors[vehicle_id % len(self.colors)]
 
-                # Ajouter la polyline
                 folium.PolyLine(
                     locations=route['points'],
                     color=color,
@@ -65,7 +59,6 @@ class RouteVisualizer:
                     popup=f"Chauffeur {vehicle_id}: {route['distance']:.2f} km, {route['load']} passagers"
                 ).add_to(map_viz)
 
-                # Ajouter les marqueurs pour chaque arrêt
                 for i, point in enumerate(route['points']):
                     if i > 0 and i < len(route['points']) - 1:
                         folium.Marker(
@@ -81,7 +74,6 @@ class RouteVisualizer:
                             popup=f"Arrêt {i}: {route['stops'][i]['name']}"
                         ).add_to(map_viz)
 
-                # Ajouter des chemins animés
                 for i in range(len(route['points']) - 1):
                     plugins.AntPath(
                         locations=[route['points'][i], route['points'][i+1]],
@@ -92,7 +84,6 @@ class RouteVisualizer:
                         weight=4
                     ).add_to(map_viz)
 
-                # Ajouter le marqueur de départ du chauffeur
                 folium.Marker(
                     location=[self.depot_coords[0], self.depot_coords[1]],
                     popup=f"Départ chauffeur {vehicle_id}",
@@ -131,7 +122,7 @@ class RouteVisualizer:
             while not routing.IsEnd(index):
                 node_index = manager.IndexToNode(index)
 
-                if node_index != 0:  # Pas le dépôt
+                if node_index != 0:
                     route_load += data['demands'][node_index]
                     point = data['points'][node_index - 1]
 
@@ -162,7 +153,6 @@ class RouteVisualizer:
                 route_distance += routing.GetArcCostForVehicle(
                     previous_index, index, vehicle_id) / 1000
 
-            # Ajouter le retour au dépôt
             route_points.append([self.depot_coords[0], self.depot_coords[1]])
             stop_sequence.append({
                 "coords": [self.depot_coords[0], self.depot_coords[1]],
